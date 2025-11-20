@@ -1,0 +1,375 @@
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
+import { Camera, RefreshCw, AlertCircle } from 'lucide-react'
+import { useCameraConfig } from '../contexts/camera'
+import { getResolutionDimensions, captureVideoFrame, isValidCameraUrl } from '../utils/cameraUtils'
+
+interface Detection {
+  class?: string
+  class_name?: string
+  confidence: number
+  bbox: number[]
+}
+
+interface CameraFeedProps {
+  isCompliant: boolean
+  onRefresh: () => void
+  onCapture?: (imageData: string) => void
+  detections?: Detection[]
+}
+
+export interface CameraFeedHandle {
+  handleCapture: () => string | null
+}
+
+export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
+  ({ isCompliant, onRefresh, onCapture, detections = [] }, ref) => {
+  const { config } = useCameraConfig()
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [stream, setStream] = useState<MediaStream | null>(null)
+  const [ipCameraUrl, setIpCameraUrl] = useState<string>('')
+
+  const borderColor = isCompliant ? 'border-green-500' : 'border-red-500'
+
+  const stopCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop())
+      setStream(null)
+    }
+  }
+
+  const startCamera = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      if (config.type === 'ip') {
+        if (!config.ipUrl) {
+          setError('Por favor, configura la URL de la cámara IP.')
+          setIsLoading(false)
+          return
+        }
+
+        if (!isValidCameraUrl(config.ipUrl)) {
+          setError('URL inválida. Usa http://, https:// o rtsp://')
+          setIsLoading(false)
+          return
+        }
+
+        let videoUrl = config.ipUrl
+        if (!videoUrl.includes('/video') && !videoUrl.includes('/stream') && !videoUrl.includes('/mjpeg')) {
+          videoUrl = videoUrl.endsWith('/') ? videoUrl + 'video' : videoUrl + '/video'
+        }
+
+        console.log('🎥 Conectando a cámara IP:', videoUrl)
+        setIpCameraUrl(videoUrl)
+        
+        setTimeout(() => {
+          setIsLoading(false)
+        }, 2000)
+
+      } else {
+        const dimensions = getResolutionDimensions(config.resolution)
+        const mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: dimensions.width },
+            height: { ideal: dimensions.height },
+            facingMode: 'user'
+          },
+          audio: false
+        })
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = mediaStream
+          setStream(mediaStream)
+        }
+        setIsLoading(false)
+      }
+    } catch (err) {
+      console.error('Error al acceder a la cámara:', err)
+      setError('No se pudo acceder a la cámara. Por favor, verifica los permisos.')
+      setIsLoading(false)
+    }
+  }
+
+  const handleRefresh = () => {
+    stopCamera()
+    startCamera()
+    onRefresh()
+  }
+
+  const handleCapture = () => {
+    if (!canvasRef.current) return null
+
+    const canvas = canvasRef.current
+    const context = canvas.getContext('2d')
+    if (!context) return null
+
+    // Para cámara IP
+    if (config.type === 'ip' && imgRef.current) {
+      const img = imgRef.current
+      canvas.width = img.naturalWidth || img.width
+      canvas.height = img.naturalHeight || img.height
+      context.drawImage(img, 0, 0, canvas.width, canvas.height)
+      
+      const imageData = canvas.toDataURL('image/jpeg', 0.8)
+      if (onCapture) {
+        onCapture(imageData)
+      }
+      return imageData
+    }
+
+    // Para webcam
+    if (videoRef.current) {
+      const imageData = captureVideoFrame(videoRef.current, canvasRef.current)
+      if (imageData && onCapture) {
+        onCapture(imageData)
+      }
+      return imageData
+    }
+
+    return null
+  }
+
+  useImperativeHandle(ref, () => ({
+    handleCapture,
+  }))
+
+  useEffect(() => {
+    startCamera()
+    return () => {
+      stopCamera()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.type, config.ipUrl, config.resolution])
+
+  useEffect(() => {
+    const canvas = overlayCanvasRef.current
+    const videoElement = config.type === 'ip' ? imgRef.current : videoRef.current
+    
+    if (!canvas || !videoElement || detections.length === 0) {
+      if (canvas) {
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height)
+        }
+      }
+      return
+    }
+
+    const drawDetections = () => {
+      try {
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+
+        const container = canvas.parentElement
+        if (!container) return
+
+        canvas.width = container.clientWidth
+        canvas.height = container.clientHeight
+
+        const mediaWidth = config.type === 'ip' 
+          ? (imgRef.current?.naturalWidth || imgRef.current?.width || 1)
+          : (videoRef.current?.videoWidth || 1)
+        const mediaHeight = config.type === 'ip'
+          ? (imgRef.current?.naturalHeight || imgRef.current?.height || 1)
+          : (videoRef.current?.videoHeight || 1)
+
+        // Evitar divisiones por cero
+        if (mediaWidth <= 0 || mediaHeight <= 0) return
+
+        const scaleX = canvas.width / mediaWidth
+        const scaleY = canvas.height / mediaHeight
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+      detections.forEach((detection, index) => {
+        const detectionAny = detection as unknown as Record<string, unknown>
+        const className = (detectionAny.class || detectionAny.class_name) as string
+        
+        if (!detection || !detection.bbox || detection.bbox.length !== 4 || !className) {
+          console.warn('⚠️ Detección inválida:', detection)
+          return
+        }
+
+        console.log(`📦 Dibujando detección ${index + 1}:`, {
+          class: className,
+          confidence: detection.confidence,
+          bbox: detection.bbox
+        })
+
+        const [x1, y1, x2, y2] = detection.bbox
+        const width = x2 - x1
+        const height = y2 - y1
+
+        const scaledX = x1 * scaleX
+        const scaledY = y1 * scaleY
+        const scaledWidth = width * scaleX
+        const scaledHeight = height * scaleY
+
+        console.log(`  📐 Coordenadas escaladas:`, {
+          original: `(${x1}, ${y1}, ${x2}, ${y2})`,
+          scaled: `(${scaledX.toFixed(1)}, ${scaledY.toFixed(1)}, ${scaledWidth.toFixed(1)}x${scaledHeight.toFixed(1)})`
+        })
+
+        const colorMap: Record<string, string> = {
+          'casco': '#10b981',
+          'gafas': '#3b82f6',
+          'guantes': '#f59e0b',
+          'botas': '#8b5cf6',
+          'chaleco': '#ec4899',
+          'protector': '#ec4899',
+          'tapabocas': '#06b6d4',
+        }
+        const classNameLower = className.toLowerCase()
+        const color = colorMap[classNameLower] || '#10b981'
+
+        ctx.strokeStyle = color
+        ctx.lineWidth = 3
+        ctx.strokeRect(scaledX, scaledY, scaledWidth, scaledHeight)
+
+        const confidence = detection.confidence || 0
+        const label = `${className} ${(confidence * 100).toFixed(0)}%`
+        ctx.font = 'bold 14px system-ui'
+        const textMetrics = ctx.measureText(label)
+        const textWidth = textMetrics.width + 10
+        const textHeight = 24
+
+        ctx.fillStyle = color
+        ctx.fillRect(scaledX, scaledY - textHeight, textWidth, textHeight)
+
+        ctx.fillStyle = '#ffffff'
+        ctx.fillText(label, scaledX + 5, scaledY - 7)
+      })
+      } catch (error) {
+        console.error('❌ Error dibujando detecciones:', error)
+      }
+    }
+
+    drawDetections()
+
+    const resizeObserver = new ResizeObserver(drawDetections)
+    const container = canvas.parentElement
+    if (container) {
+      resizeObserver.observe(container)
+    }
+
+    return () => {
+      resizeObserver.disconnect()
+    }
+  }, [detections, config.type])
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-bold text-slate-900">Cámara en vivo</h2>
+        <button
+          onClick={handleRefresh}
+          className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Actualizar
+        </button>
+      </div>
+
+      <div
+        className={`relative bg-slate-900 rounded-lg overflow-hidden border-4 ${borderColor} aspect-video`}
+      >
+        {config.type === 'ip' && ipCameraUrl ? (
+          <img
+            ref={imgRef}
+            src={ipCameraUrl}
+            alt="IP Camera Stream"
+            crossOrigin="anonymous"
+            className="w-full h-full object-cover"
+            onLoad={() => {
+              console.log('✅ Cámara IP cargada correctamente')
+              setIsLoading(false)
+            }}
+            onError={(e) => {
+              console.error('Error cargando cámara IP:', e)
+              console.log('URL intentada:', ipCameraUrl)
+              setError('No se pudo cargar el stream. Verifica:\n1) URL correcta\n2) Misma red WiFi\n3) App IP Webcam corriendo\n4) URL en navegador primero')
+              setIsLoading(false)
+            }}
+          />
+        ) : config.type === 'ip' && !ipCameraUrl ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
+            <div className="text-center px-4">
+              <Camera className="w-24 h-24 text-slate-500 mx-auto mb-4" />
+              <p className="text-white font-medium mb-2">No hay URL configurada</p>
+              <p className="text-slate-400 text-sm">Ve a Configuración para agregar la URL de tu cámara IP</p>
+              <button
+                onClick={onRefresh}
+                className="mt-4 px-4 py-2 bg-blue-900 text-white rounded-lg hover:bg-blue-800"
+              >
+                Abrir Configuración
+              </button>
+            </div>
+          </div>
+        ) : (
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full h-full object-cover"
+          />
+        )}
+
+        <canvas ref={canvasRef} className="hidden" />
+
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
+            <div className="text-center">
+              <Camera className="w-24 h-24 text-slate-700 animate-pulse mx-auto mb-4" />
+              <p className="text-white font-medium">Iniciando cámara...</p>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
+            <div className="text-center px-4">
+              <AlertCircle className="w-24 h-24 text-red-500 mx-auto mb-4" />
+              <p className="text-white font-medium mb-2">Error de cámara</p>
+              <p className="text-slate-400 text-sm">{error}</p>
+              <button
+                onClick={handleRefresh}
+                className="mt-4 px-4 py-2 bg-blue-900 text-white rounded-lg hover:bg-blue-800"
+              >
+                Reintentar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!error && !isLoading && (
+          <>
+            <canvas
+              ref={overlayCanvasRef}
+              className="absolute inset-0 w-full h-full pointer-events-none"
+            />
+            
+            <div className="absolute top-4 left-4 bg-black/70 text-white px-3 py-2 rounded-lg text-sm font-medium">
+              <span className="inline-block w-2 h-2 bg-red-500 rounded-full animate-pulse mr-2"></span>
+              Cámara en vivo
+            </div>
+
+            {detections.length > 0 && (
+              <div className="absolute top-4 right-4 bg-black/70 text-white px-3 py-2 rounded-lg text-xs font-medium">
+                {detections.length} objeto{detections.length > 1 ? 's' : ''} detectado{detections.length > 1 ? 's' : ''}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+})
+
+CameraFeed.displayName = 'CameraFeed'

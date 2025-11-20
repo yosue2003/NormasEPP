@@ -1,0 +1,7 @@
+__pycache__
+*.pyc
+.env
+venv
+public
+models/EPP_dataset/*
+models/EPP.v1i.yolov8.zip
