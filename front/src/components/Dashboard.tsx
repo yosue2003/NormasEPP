@@ -38,6 +38,10 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
   const wsRef = useRef<PPEWebSocket | null>(null)
   const cameraFeedRef = useRef<CameraFeedHandle | null>(null)
   const detectionIntervalRef = useRef<number | null>(null)
+  const isProcessingRef = useRef(false)
+  const lastSendTimeRef = useRef<number>(0)
+  const adaptiveIntervalRef = useRef<number>(1500)
+  const latencyHistoryRef = useRef<number[]>([])
 
   const isCompliant = !hasDetection || Object.entries(ppeStatus).every(([key, detected]) => {
     const isRequired = config.requiredPPE[key as keyof typeof config.requiredPPE]
@@ -62,10 +66,57 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
     })
 
   const handleDetectionResponse = useCallback((data: DetectionResponse) => {
-    console.log('📥 Detecciones recibidas:', data.detections?.length || 0, data.detections)
+
+    const latency = Date.now() - lastSendTimeRef.current
+    console.log(`Latencia: ${latency}ms | Detecciones: ${data.detections?.length || 0}`)
+
+    if (!data || !data.ppe_status) {
+      console.warn('Respuesta inválida del servidor:', data)
+      setIsDetecting(false)
+      isProcessingRef.current = false
+      return
+    }
+
+    if (data.has_person === false) {
+      console.log('Sin personas en escena - Omitiendo alertas EPP')
+      setPpeStatus({
+        casco: false,
+        lentes: false,
+        guantes: false,
+        botas: false,
+        ropa: false,
+        tapabocas: false,
+      })
+      setDetections([])
+      setHasDetection(false)
+      setIsDetecting(false)
+      isProcessingRef.current = false
+      return
+    }
+
+    latencyHistoryRef.current.push(latency)
+    if (latencyHistoryRef.current.length > 10) {
+      latencyHistoryRef.current.shift()
+    }
+
+    if (latencyHistoryRef.current.length >= 5) {
+      const avgLatency = latencyHistoryRef.current.reduce((a, b) => a + b, 0) / latencyHistoryRef.current.length
+      
+      if (avgLatency < 300) {
+        adaptiveIntervalRef.current = 1000
+      } else if (avgLatency < 600) {
+        adaptiveIntervalRef.current = 1500
+      } else {
+        adaptiveIntervalRef.current = 2500
+      }
+      
+      console.log(`Intervalo ajustado: ${adaptiveIntervalRef.current}ms (latencia avg: ${avgLatency.toFixed(0)}ms)`)
+    }
+
     setPpeStatus(data.ppe_status)
     setDetections(data.detections || [])
     setIsDetecting(false)
+    isProcessingRef.current = false
     setHasDetection(true)
 
     const now = new Date()
@@ -105,11 +156,11 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
         },
         () => {
           setIsConnected(true)
-          console.log('✅ Conectado al servidor')
+          console.log('Conectado al servidor')
         },
         () => {
           setIsConnected(false)
-          console.log('❌ Desconectado del servidor')
+          console.log('Desconectado del servidor')
         }
       )
 
@@ -122,7 +173,7 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
         wsRef.current.disconnect()
       }
       if (detectionIntervalRef.current) {
-        clearInterval(detectionIntervalRef.current)
+        clearTimeout(detectionIntervalRef.current)
       }
     }
   }, [handleDetectionResponse])
@@ -134,25 +185,46 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
     }
 
     setCameraActive(true)
+    console.log('▶️ Iniciando detección continua con intervalo adaptativo')
 
-    detectionIntervalRef.current = window.setInterval(() => {
-      if (cameraFeedRef.current && wsRef.current?.isConnected()) {
-        setIsDetecting(true)
-        const imageData = cameraFeedRef.current.handleCapture()
-        if (imageData) {
-          wsRef.current.send(imageData, 0.3) 
+    const scheduleNextDetection = () => {
+      detectionIntervalRef.current = window.setTimeout(() => {
+        if (!cameraFeedRef.current || !wsRef.current?.isConnected()) {
+          return
         }
-      }
-    }, 1000)
+
+        if (!isProcessingRef.current) {
+          isProcessingRef.current = true
+          setIsDetecting(true)
+          lastSendTimeRef.current = Date.now()
+          
+          const imageData = cameraFeedRef.current.handleCapture()
+          if (imageData) {
+            wsRef.current.send(imageData, 0.3)
+          } else {
+            isProcessingRef.current = false
+            setIsDetecting(false)
+          }
+        }
+
+        scheduleNextDetection()
+      }, adaptiveIntervalRef.current)
+    }
+
+    scheduleNextDetection()
   }
 
   const stopDetection = () => {
+    console.log('⏸️ Deteniendo detección continua')
     setCameraActive(false)
     if (detectionIntervalRef.current) {
-      clearInterval(detectionIntervalRef.current)
+      clearTimeout(detectionIntervalRef.current)
       detectionIntervalRef.current = null
     }
     setIsDetecting(false)
+    isProcessingRef.current = false
+    latencyHistoryRef.current = []
+    adaptiveIntervalRef.current = 1500
   }
 
   const handleRefresh = () => {

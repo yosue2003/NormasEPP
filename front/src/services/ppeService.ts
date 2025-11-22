@@ -20,6 +20,7 @@ export interface DetectionResponse {
   ppe_status: PPEStatus
   detections: Detection[]
   is_compliant: boolean
+  has_person?: boolean
 }
 
 
@@ -54,9 +55,11 @@ export async function detectPPE(
 export class PPEWebSocket {
   private ws: WebSocket | null = null
   private reconnectAttempts = 0
-  private maxReconnectAttempts = 10
-  private reconnectDelay = 3000
+  private reconnectDelays = [2000, 5000, 10000, 30000]
+  private currentDelayIndex = 0
   private heartbeatInterval: number | null = null
+  private stableConnectionTimer: number | null = null
+  private connectionStartTime: number = 0
   private onMessageCallback: (data: DetectionResponse) => void
   private onErrorCallback?: (error: Event) => void
   private onConnectCallback?: () => void
@@ -79,15 +82,17 @@ export class PPEWebSocket {
     this.isManualDisconnect = false
     const wsUrl = API_URL.replace('http', 'ws') + '/api/ws/detect'
     console.log('🔌 Intentando conectar WebSocket a:', wsUrl)
-    console.log('📡 API_URL configurado:', API_URL)
     
     try {
       this.ws = new WebSocket(wsUrl)
 
       this.ws.onopen = () => {
-        console.log('✅ WebSocket conectado exitosamente')
-        this.reconnectAttempts = 0
+        console.log('WebSocket conectado exitosamente')
+        this.connectionStartTime = Date.now()
         this.startHeartbeat()
+        
+        this.startStableConnectionTimer()
+        
         if (this.onConnectCallback) {
           this.onConnectCallback()
         }
@@ -95,27 +100,41 @@ export class PPEWebSocket {
 
       this.ws.onmessage = (event) => {
         try {
-          const data: DetectionResponse = JSON.parse(event.data)
-          this.onMessageCallback(data)
+          const data = JSON.parse(event.data)
+          
+          if (data.type === 'ping') {
+            this.sendPong()
+            return
+          }
+
+          if (data.type === 'pong') {
+            return
+          }
+
+          this.onMessageCallback(data as DetectionResponse)
         } catch (error) {
-          console.error('❌ Error al parsear mensaje WebSocket:', error)
+          console.error('Error al parsear mensaje WebSocket:', error)
           console.error('Datos recibidos:', event.data)
-          // No desconectar por un error de parseo
         }
       }
 
       this.ws.onerror = (error) => {
-        console.error('❌ Error en WebSocket:', error)
+        console.error('Error en WebSocket:', error)
         if (this.onErrorCallback) {
           this.onErrorCallback(error)
         }
       }
 
-      this.ws.onclose = () => {
-        console.log('❌ WebSocket desconectado')
+      this.ws.onclose = (event) => {
+        const duration = Date.now() - this.connectionStartTime
+        console.log(`WebSocket desconectado - Código: ${event.code} | Duración: ${(duration/1000).toFixed(1)}s`)
+        
+        this.stopStableConnectionTimer()
+        
         if (this.onDisconnectCallback) {
           this.onDisconnectCallback()
         }
+        
         if (!this.isManualDisconnect) {
           this.attemptReconnect()
         }
@@ -135,14 +154,13 @@ export class PPEWebSocket {
           })
         )
       } catch (error) {
-        console.error('❌ Error al enviar datos:', error)
-        // Intentar reconectar si falla el envío
+        console.error('Error al enviar datos:', error)
         if (!this.isManualDisconnect) {
           this.attemptReconnect()
         }
       }
     } else {
-      console.warn('⚠️ WebSocket no está conectado, reconectando...')
+      console.warn('WebSocket no está conectado, reconectando...')
       if (!this.isManualDisconnect) {
         this.connect()
       }
@@ -152,11 +170,13 @@ export class PPEWebSocket {
   disconnect() {
     this.isManualDisconnect = true
     this.stopHeartbeat()
+    this.stopStableConnectionTimer()
     if (this.ws) {
       this.ws.close()
       this.ws = null
     }
     this.reconnectAttempts = 0
+    this.currentDelayIndex = 0
   }
 
   isConnected(): boolean {
@@ -164,26 +184,29 @@ export class PPEWebSocket {
   }
 
   private attemptReconnect() {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++
-      console.log(
-        `🔄 Intentando reconectar (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`
-      )
-      setTimeout(() => this.connect(), this.reconnectDelay)
-    } else {
-      console.error('❌ Máximo de intentos de reconexión alcanzado')
+    this.reconnectAttempts++
+
+    const delay = this.reconnectDelays[this.currentDelayIndex]
+
+    if (this.currentDelayIndex < this.reconnectDelays.length - 1) {
+      this.currentDelayIndex++
     }
+    
+    console.log(
+      `🔄 Reconectando en ${delay/1000}s... (intento #${this.reconnectAttempts})`
+    )
+    
+    setTimeout(() => this.connect(), delay)
   }
 
   private startHeartbeat() {
     this.stopHeartbeat()
-    // Ping cada 30 segundos para mantener conexión viva
     this.heartbeatInterval = window.setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         try {
           this.ws.send(JSON.stringify({ type: 'ping' }))
         } catch {
-          console.warn('⚠️ Error en heartbeat, reconectando...')
+          console.warn('Error en heartbeat, reconectando...')
           this.connect()
         }
       }
@@ -194,6 +217,32 @@ export class PPEWebSocket {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval)
       this.heartbeatInterval = null
+    }
+  }
+  
+  private sendPong() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }))
+      } catch (error) {
+        console.warn('⚠️ Error enviando pong:', error)
+      }
+    }
+  }
+  
+  private startStableConnectionTimer() {
+    this.stopStableConnectionTimer()
+    this.stableConnectionTimer = window.setTimeout(() => {
+      console.log('✅ Conexión estable por 5 min - Reseteando backoff')
+      this.reconnectAttempts = 0
+      this.currentDelayIndex = 0
+    }, 5 * 60 * 1000)
+  }
+  
+  private stopStableConnectionTimer() {
+    if (this.stableConnectionTimer) {
+      clearTimeout(this.stableConnectionTimer)
+      this.stableConnectionTimer = null
     }
   }
 }

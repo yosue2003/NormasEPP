@@ -1,12 +1,16 @@
-"""
-Controlador de detección de EPP
-"""
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import JSONResponse
 import asyncio
 import json
-from typing import Dict, List
+from typing import Dict, List, Optional
 import time
+import traceback
+import base64
+import os
+from concurrent.futures import ThreadPoolExecutor
+from starlette.websockets import WebSocketState
+from collections import deque
 
 from app.models.ppe_models import ImageRequest, DetectionResponse, ErrorResponse
 from app.services.ppe_service import PPEDetectorService
@@ -14,30 +18,24 @@ from app.services.ppe_service import PPEDetectorService
 
 router = APIRouter(prefix="/api", tags=["PPE Detection"])
 
-detector_service: PPEDetectorService = None
+detector_service: Optional[PPEDetectorService] = None
+
+MAX_WORKERS = min(4, (os.cpu_count() or 1) + 1)
+MAX_IMAGE_SIZE_MB = 2
+MAX_ACTIVE_CONNECTIONS = 50 
+INACTIVE_TIMEOUT = 120
+MAX_QUEUE_SIZE = 100 
+
+executor = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="yolo_")
 
 
 def init_detector(service: PPEDetectorService):
-    """Inicializa el servicio de detección"""
     global detector_service
     detector_service = service
 
 
-# ============================================================================
-# REST ENDPOINTS
-# ============================================================================
-
 @router.post("/detect", response_model=DetectionResponse)
 async def detect_ppe(request: ImageRequest):
-    """
-    Detecta EPP en una imagen
-    
-    Args:
-        request: Solicitud con imagen en base64 y opciones
-        
-    Returns:
-        Resultado de la detección con estado de EPP
-    """
     try:
         if not detector_service or not detector_service.is_ready():
             raise HTTPException(
@@ -60,7 +58,6 @@ async def detect_ppe(request: ImageRequest):
 
 @router.get("/health")
 async def health_check():
-    """Verifica el estado del servicio"""
     if not detector_service:
         return JSONResponse(
             status_code=503,
@@ -72,37 +69,55 @@ async def health_check():
     
     is_ready = detector_service.is_ready()
     model_info = detector_service.get_model_info()
+    metrics = ws_manager.get_metrics()
     
     return {
         "status": "healthy" if is_ready else "unhealthy",
         "detector_ready": is_ready,
         "model_info": model_info,
+        "websocket_metrics": {
+            "active_connections": metrics["active"],
+            "total_connections": metrics["total"],
+            "rejected_connections": metrics["rejected"],
+            "max_connections": MAX_ACTIVE_CONNECTIONS
+        },
+        "resource_limits": {
+            "max_image_size_mb": MAX_IMAGE_SIZE_MB,
+            "max_workers": MAX_WORKERS,
+            "inactive_timeout_seconds": INACTIVE_TIMEOUT
+        },
         "timestamp": time.time()
     }
 
-
-# ============================================================================
-# WEBSOCKET ENDPOINT
-# ============================================================================
-
 class WebSocketManager:
-    """Gestiona conexiones WebSocket para detección en tiempo real"""
     
     def __init__(self):
         self.active_connections: List[WebSocket] = []
+        self.connection_times: Dict[WebSocket, float] = {} 
+        self.connection_metrics: Dict[str, int] = {"total": 0, "active": 0, "rejected": 0}
     
-    async def connect(self, websocket: WebSocket):
-        """Acepta nueva conexión WebSocket"""
+    async def connect(self, websocket: WebSocket) -> bool:
+        if len(self.active_connections) >= MAX_ACTIVE_CONNECTIONS:
+            await websocket.close(code=1008, reason="Máximo de conexiones alcanzado")
+            self.connection_metrics["rejected"] += 1
+            print(f"Conexión rechazada - Límite alcanzado ({MAX_ACTIVE_CONNECTIONS})")
+            return False
+        
         await websocket.accept()
         self.active_connections.append(websocket)
+        self.connection_times[websocket] = time.time()
+        self.connection_metrics["total"] += 1
+        self.connection_metrics["active"] = len(self.active_connections)
+        return True
     
     def disconnect(self, websocket: WebSocket):
-        """Remueve conexión WebSocket"""
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+        if websocket in self.connection_times:
+            del self.connection_times[websocket]
+        self.connection_metrics["active"] = len(self.active_connections)
     
     async def send_detection(self, websocket: WebSocket, result: DetectionResponse):
-        """Envía resultado de detección a cliente"""
         try:
             await websocket.send_json(result.model_dump())
         except Exception as e:
@@ -110,7 +125,6 @@ class WebSocketManager:
             self.disconnect(websocket)
     
     async def send_error(self, websocket: WebSocket, error: str):
-        """Envía error a cliente"""
         try:
             await websocket.send_json({
                 "error": error,
@@ -118,65 +132,215 @@ class WebSocketManager:
             })
         except Exception:
             pass
+    
+    def update_activity(self, websocket: WebSocket):
+
+        if websocket in self.connection_times:
+            self.connection_times[websocket] = time.time()
+    
+    def get_inactive_connections(self) -> List[WebSocket]:
+
+        current_time = time.time()
+        inactive = []
+        for ws, last_activity in self.connection_times.items():
+            if current_time - last_activity > INACTIVE_TIMEOUT:
+                inactive.append(ws)
+        return inactive
+    
+    def get_metrics(self) -> Dict[str, int]:
+
+        return self.connection_metrics.copy()
 
 
 ws_manager = WebSocketManager()
 
 
+def validate_image_size(base64_image: str) -> tuple[bool, str]:
+    """Validar tamaño de imagen base64"""
+    try:
+        size_bytes = len(base64_image.encode('utf-8'))
+        size_mb = size_bytes / (1024 * 1024)
+        
+        if size_mb > MAX_IMAGE_SIZE_MB:
+            return False, f"Imagen muy grande: {size_mb:.2f}MB (máx {MAX_IMAGE_SIZE_MB}MB)"
+        
+        return True, "OK"
+    except Exception as e:
+        return False, f"Error validando imagen: {str(e)}"
+
+
+def validate_base64_format(base64_image: str) -> tuple[bool, str]:
+    """Validar formato base64 de imagen"""
+    try:
+        if not base64_image or len(base64_image) < 100:
+            return False, "Imagen vacía o muy pequeña"
+
+        if base64_image.startswith('data:image'):
+            base64_image = base64_image.split(',')[1] if ',' in base64_image else base64_image
+
+        base64.b64decode(base64_image[:100])
+        return True, "OK"
+    except Exception as e:
+        return False, f"Formato base64 inválido: {str(e)}"
+
+
 @router.websocket("/ws/detect")
 async def websocket_detect(websocket: WebSocket):
-    """
-    WebSocket para detección de EPP en tiempo real
+
+    connected = await ws_manager.connect(websocket)
+    if not connected:
+        return
     
-    El cliente envía frames en formato:
-    {
-        "image": "base64_string",
-        "confidence": 0.5
-    }
-    """
-    await ws_manager.connect(websocket)
+    pong_task = None
+    cleanup_task = None
+    last_ping_time = time.time()
+
+    async def heartbeat_handler():
+        """Envía ping cada 15s y verifica que cliente responda"""
+        nonlocal last_ping_time
+        try:
+            while websocket.client_state == WebSocketState.CONNECTED:
+                await asyncio.sleep(15)
+                if websocket.client_state == WebSocketState.CONNECTED:
+                    try:
+                        await websocket.send_json({"type": "ping", "timestamp": time.time()})
+                        last_ping_time = time.time()
+                    except (RuntimeError, Exception):
+                        break
+        except asyncio.CancelledError:
+            pass
+
+    async def cleanup_inactive():
+        """Verifica y cierra conexiones inactivas"""
+        try:
+            while websocket.client_state == WebSocketState.CONNECTED:
+                await asyncio.sleep(30)
+                inactive = ws_manager.get_inactive_connections()
+                if websocket in inactive:
+                    print(f"⚠️ Cerrando conexión inactiva (>{INACTIVE_TIMEOUT}s)")
+                    await websocket.close(code=1000, reason="Inactividad")
+                    break
+        except asyncio.CancelledError:
+            pass
     
     try:
-        # Verificar que el detector esté listo
         if not detector_service or not detector_service.is_ready():
-            await ws_manager.send_error(
-                websocket,
-                "Servicio de detección no disponible"
-            )
+            await ws_manager.send_error(websocket, "Servicio de detección no disponible")
             await websocket.close()
             return
         
-        while True:
+        metrics = ws_manager.get_metrics()
+        print(f"WebSocket conectado - Activas: {metrics['active']}/{MAX_ACTIVE_CONNECTIONS} | Total: {metrics['total']}")
+
+        pong_task = asyncio.create_task(heartbeat_handler())
+        cleanup_task = asyncio.create_task(cleanup_inactive())
+        
+        while websocket.client_state == WebSocketState.CONNECTED:
             try:
-                # Recibir datos del cliente
-                data = await websocket.receive_text()
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
                 message = json.loads(data)
-                
-                # Validar mensaje
+
+                ws_manager.update_activity(websocket)
+
+                if message.get("type") == "pong":
+                    continue
+
+                if message.get("type") == "ping":
+                    if websocket.client_state == WebSocketState.CONNECTED:
+                        await websocket.send_json({"type": "pong", "timestamp": time.time()})
+                    continue
+
                 if "image" not in message:
                     await ws_manager.send_error(websocket, "Falta campo 'image'")
                     continue
                 
+                image_data = message["image"]
+
+                valid_format, format_msg = validate_base64_format(image_data)
+                if not valid_format:
+                    await ws_manager.send_error(websocket, format_msg)
+                    continue
+                
+                valid_size, size_msg = validate_image_size(image_data)
+                if not valid_size:
+                    await ws_manager.send_error(websocket, size_msg)
+                    continue
+                
                 confidence = message.get("confidence", 0.5)
+
+                try:
+                    loop = asyncio.get_event_loop()
+                    result = await asyncio.wait_for(
+                        loop.run_in_executor(
+                            executor,
+                            detector_service.detect_from_base64,
+                            image_data,
+                            confidence
+                        ),
+                        timeout=10.0
+                    )
+                    
+                    if websocket.client_state == WebSocketState.CONNECTED:
+                        await ws_manager.send_detection(websocket, result)
                 
-                # Realizar detección
-                result = detector_service.detect_from_base64(
-                    message["image"],
-                    confidence=confidence
-                )
+                except asyncio.TimeoutError:
+                    print(f"Timeout en detección YOLO (>10s)")
+                    await ws_manager.send_error(websocket, "Timeout en procesamiento")
+                    continue
                 
-                # Enviar resultado
-                await ws_manager.send_detection(websocket, result)
+                except Exception as yolo_error:
+                    print(f"Error YOLO (sin romper conexión): {type(yolo_error).__name__}: {str(yolo_error)}")
+                    await ws_manager.send_error(websocket, "Error en detección, reintenta")
+                    continue
+            
+            except asyncio.TimeoutError:
+                continue
             
             except json.JSONDecodeError:
                 await ws_manager.send_error(websocket, "JSON inválido")
+            
             except ValueError as e:
                 await ws_manager.send_error(websocket, str(e))
+            
+            except RuntimeError as e:
+                if "disconnect" in str(e).lower():
+                    print(f"Cliente desconectado durante operación")
+                    break
+                else:
+                    print(f"RuntimeError: {str(e)}")
+                    break
+            
             except Exception as e:
-                await ws_manager.send_error(websocket, f"Error: {str(e)}")
+                print(f"Error inesperado: {type(e).__name__}: {str(e)}")
+                traceback.print_exc()
+                try:
+                    await ws_manager.send_error(websocket, "Error interno")
+                except:
+                    break
     
-    except WebSocketDisconnect:
-        ws_manager.disconnect(websocket)
+    except WebSocketDisconnect as e:
+        print(f"Cliente desconectado - Código: {e.code if hasattr(e, 'code') else 'N/A'}")
+    
+    except RuntimeError as e:
+        if "disconnect" in str(e).lower():
+            print(f"WebSocket cerrado por cliente")
+        else:
+            print(f"RuntimeError: {str(e)}")
+            traceback.print_exc()
+    
     except Exception as e:
-        print(f"Error en WebSocket: {e}")
+        print(f"Error crítico: {type(e).__name__}: {str(e)}")
+        traceback.print_exc()
+    
+    finally:
+        for task in [pong_task, cleanup_task]:
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        
         ws_manager.disconnect(websocket)
+        metrics = ws_manager.get_metrics()
+        print(f"🔌 Conexión cerrada - Activas: {metrics['active']} | Total: {metrics['total']}")

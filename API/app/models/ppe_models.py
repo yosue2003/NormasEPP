@@ -74,6 +74,7 @@ class DetectionResponse(BaseModel):
     detections: List[Detection] = Field(default=[], description="Lista de detecciones individuales")
     is_compliant: bool = Field(..., description="Si cumple con todos los EPP requeridos")
     processing_time: Optional[float] = Field(None, description="Tiempo de procesamiento en ms")
+    has_person: bool = Field(default=True, description="Si se detectó al menos una persona en la imagen")
 
     class Config:
         json_schema_extra = {

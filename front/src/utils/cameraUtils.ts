@@ -1,6 +1,4 @@
-/**
- * Convierte la resolución a dimensiones de video
- */
+
 export function getResolutionDimensions(resolution: string) {
   switch (resolution) {
     case '1080p':
@@ -14,9 +12,6 @@ export function getResolutionDimensions(resolution: string) {
   }
 }
 
-/**
- * Captura un frame del elemento de video y lo convierte a base64
- */
 export function captureVideoFrame(
   videoElement: HTMLVideoElement,
   canvasElement: HTMLCanvasElement,
@@ -32,9 +27,6 @@ export function captureVideoFrame(
   return canvasElement.toDataURL('image/jpeg', quality)
 }
 
-/**
- * Valida si una URL de cámara IP es válida
- */
 export function isValidCameraUrl(url: string): boolean {
   if (!url) return false
   try {

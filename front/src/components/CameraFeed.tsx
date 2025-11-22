@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
 import { Camera, RefreshCw, AlertCircle } from 'lucide-react'
 import { useCameraConfig } from '../contexts/camera'
-import { getResolutionDimensions, captureVideoFrame, isValidCameraUrl } from '../utils/cameraUtils'
+import { getResolutionDimensions, isValidCameraUrl } from '../utils/cameraUtils'
 
 interface Detection {
   class?: string
@@ -32,6 +32,7 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
   const [error, setError] = useState<string | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [ipCameraUrl, setIpCameraUrl] = useState<string>('')
+  const [imageSizeWarning, setImageSizeWarning] = useState<string | null>(null)
 
   const borderColor = isCompliant ? 'border-green-500' : 'border-red-500'
 
@@ -109,27 +110,77 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
     const context = canvas.getContext('2d')
     if (!context) return null
 
-    // Para cámara IP
-    if (config.type === 'ip' && imgRef.current) {
-      const img = imgRef.current
-      canvas.width = img.naturalWidth || img.width
-      canvas.height = img.naturalHeight || img.height
-      context.drawImage(img, 0, 0, canvas.width, canvas.height)
+    setImageSizeWarning(null)
+
+    const processImage = (source: HTMLImageElement | HTMLVideoElement, originalWidth: number, originalHeight: number) => {
+      const maxWidth = 640
+      const maxHeight = 480
+      let targetWidth = originalWidth
+      let targetHeight = originalHeight
       
-      const imageData = canvas.toDataURL('image/jpeg', 0.8)
+      if (originalWidth > maxWidth || originalHeight > maxHeight) {
+        const aspectRatio = originalWidth / originalHeight
+        if (originalWidth > originalHeight) {
+          targetWidth = maxWidth
+          targetHeight = maxWidth / aspectRatio
+        } else {
+          targetHeight = maxHeight
+          targetWidth = maxHeight * aspectRatio
+        }
+      }
+      
+      canvas.width = targetWidth
+      canvas.height = targetHeight
+      context.drawImage(source, 0, 0, targetWidth, targetHeight)
+
+      let imageData = canvas.toDataURL('image/jpeg', 0.6)
+      let sizeKB = (imageData.length * 0.75) / 1024
+
+      if (sizeKB > 1024) {
+        console.warn(`⚠️ Imagen grande: ${sizeKB.toFixed(0)}KB - Comprimiendo...`)
+        imageData = canvas.toDataURL('image/jpeg', 0.4)
+        sizeKB = (imageData.length * 0.75) / 1024
+        setImageSizeWarning(`Imagen comprimida: ${sizeKB.toFixed(0)}KB`)
+      }
+
+      if (sizeKB > 2048) {
+        console.error(`❌ Imagen muy grande: ${sizeKB.toFixed(0)}KB - Reduciendo resolución`)
+        const reducedWidth = targetWidth * 0.5
+        const reducedHeight = targetHeight * 0.5
+        canvas.width = reducedWidth
+        canvas.height = reducedHeight
+        context.drawImage(source, 0, 0, reducedWidth, reducedHeight)
+        imageData = canvas.toDataURL('image/jpeg', 0.4)
+        sizeKB = (imageData.length * 0.75) / 1024
+        setImageSizeWarning(`⚠️ Resolución reducida: ${sizeKB.toFixed(0)}KB`)
+      }
+
+      if (sizeKB < 500) {
+        console.log(`✅ Imagen optimizada: ${sizeKB.toFixed(0)}KB`)
+      } else if (sizeKB < 1024) {
+        console.log(`🟡 Imagen aceptable: ${sizeKB.toFixed(0)}KB`)
+      } else {
+        console.warn(`🟠 Imagen pesada: ${sizeKB.toFixed(0)}KB`)
+      }
+      
       if (onCapture) {
         onCapture(imageData)
       }
       return imageData
     }
 
-    // Para webcam
+    if (config.type === 'ip' && imgRef.current) {
+      const img = imgRef.current
+      const originalWidth = img.naturalWidth || img.width
+      const originalHeight = img.naturalHeight || img.height
+      return processImage(img, originalWidth, originalHeight)
+    }
+
     if (videoRef.current) {
-      const imageData = captureVideoFrame(videoRef.current, canvasRef.current)
-      if (imageData && onCapture) {
-        onCapture(imageData)
-      }
-      return imageData
+      const video = videoRef.current
+      const originalWidth = video.videoWidth
+      const originalHeight = video.videoHeight
+      return processImage(video, originalWidth, originalHeight)
     }
 
     return null
@@ -179,7 +230,6 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
           ? (imgRef.current?.naturalHeight || imgRef.current?.height || 1)
           : (videoRef.current?.videoHeight || 1)
 
-        // Evitar divisiones por cero
         if (mediaWidth <= 0 || mediaHeight <= 0) return
 
         const scaleX = canvas.width / mediaWidth
@@ -192,11 +242,11 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
         const className = (detectionAny.class || detectionAny.class_name) as string
         
         if (!detection || !detection.bbox || detection.bbox.length !== 4 || !className) {
-          console.warn('⚠️ Detección inválida:', detection)
+          console.warn('Detección inválida:', detection)
           return
         }
 
-        console.log(`📦 Dibujando detección ${index + 1}:`, {
+        console.log(`Dibujando detección ${index + 1}:`, {
           class: className,
           confidence: detection.confidence,
           bbox: detection.bbox
@@ -211,7 +261,7 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
         const scaledWidth = width * scaleX
         const scaledHeight = height * scaleY
 
-        console.log(`  📐 Coordenadas escaladas:`, {
+        console.log(`Coordenadas escaladas:`, {
           original: `(${x1}, ${y1}, ${x2}, ${y2})`,
           scaled: `(${scaledX.toFixed(1)}, ${scaledY.toFixed(1)}, ${scaledWidth.toFixed(1)}x${scaledHeight.toFixed(1)})`
         })
@@ -246,7 +296,7 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
         ctx.fillText(label, scaledX + 5, scaledY - 7)
       })
       } catch (error) {
-        console.error('❌ Error dibujando detecciones:', error)
+        console.error('Error dibujando detecciones:', error)
       }
     }
 
@@ -287,7 +337,7 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
             crossOrigin="anonymous"
             className="w-full h-full object-cover"
             onLoad={() => {
-              console.log('✅ Cámara IP cargada correctamente')
+              console.log('Cámara IP cargada correctamente')
               setIsLoading(false)
             }}
             onError={(e) => {
@@ -363,6 +413,13 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
             {detections.length > 0 && (
               <div className="absolute top-4 right-4 bg-black/70 text-white px-3 py-2 rounded-lg text-xs font-medium">
                 {detections.length} objeto{detections.length > 1 ? 's' : ''} detectado{detections.length > 1 ? 's' : ''}
+              </div>
+            )}
+            
+            {imageSizeWarning && (
+              <div className="absolute bottom-4 left-4 bg-yellow-600/90 text-white px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-2">
+                <span className="text-base">⚠️</span>
+                {imageSizeWarning}
               </div>
             )}
           </>
