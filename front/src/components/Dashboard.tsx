@@ -6,6 +6,7 @@ import { WarningBanner } from './warningbanner'
 import { DetectionHistory } from './DetectionHistory'
 import { PPEWebSocket, type DetectionResponse } from '../services/ppeService'
 import { useCameraConfig } from '../contexts/camera'
+import { alertService } from '../utils/alertService'
 
 interface DashboardProps {
   onOpenConfig: () => void
@@ -31,7 +32,19 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
   })
   const [isDetecting, setIsDetecting] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
-  const [detectionRecords, setDetectionRecords] = useState<DetectionRecord[]>([])
+  const [detectionRecords, setDetectionRecords] = useState<DetectionRecord[]>(() => {
+    // Cargar historial desde localStorage
+    try {
+      const stored = localStorage.getItem('epp-detection-history')
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        return parsed.slice(0, config.history.maxRecords)
+      }
+    } catch (error) {
+      console.error('Error cargando historial:', error)
+    }
+    return []
+  })
   const [cameraActive, setCameraActive] = useState(false)
   const [hasDetection, setHasDetection] = useState(false)
   const [detections, setDetections] = useState<Array<{class: string, confidence: number, bbox: number[]}>>([])  
@@ -143,8 +156,28 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
             .join(', '),
     }
 
-    setDetectionRecords((prev) => [newRecord, ...prev.slice(0, 9)])
-  }, [])
+    setDetectionRecords((prev) => {
+      const updated = [newRecord, ...prev.slice(0, config.history.maxRecords - 1)]
+      // Persistir en localStorage
+      localStorage.setItem('epp-detection-history', JSON.stringify(updated))
+      return updated
+    })
+
+    // Trigger de alertas si NO es compliant
+    if (!data.is_compliant) {
+      const alertTriggered = alertService.trigger(
+        config.alerts.type,
+        config.alerts.volume,
+        config.alerts.repeatInterval
+      )
+      if (alertTriggered) {
+        console.log(`🚨 Alerta ${config.alerts.type} ejecutada`)
+      }
+    } else {
+      // Reset del timer cuando se completa el EPP
+      alertService.reset()
+    }
+  }, [config.alerts, config.history.maxRecords])
 
   useEffect(() => {
     const initTimeout = setTimeout(() => {
@@ -235,52 +268,57 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
     <div className="space-y-6">
       <WarningBanner show={!isCompliant} missingItems={missingItems} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-4 sm:gap-6 items-start">
+        <div className="w-full">
           <CameraFeed
             ref={cameraFeedRef}
             isCompliant={isCompliant}
             onRefresh={handleRefresh}
             detections={detections}
+            isConnected={isConnected}
           />
         </div>
 
-        <div>
+        <div className="w-full xl:sticky xl:top-6">
           <StatusPanel ppeStatus={ppeStatus} isDetecting={isDetecting} />
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3">
-        <div className="flex items-center gap-2 px-4 py-2 bg-white border-2 border-slate-300 rounded-lg">
-          <div
-            className={`w-3 h-3 rounded-full ${
-              isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
-            }`}
-          />
-          <span className="text-sm font-medium text-slate-700">
-            {isConnected ? 'Servidor conectado' : 'Servidor desconectado'}
-          </span>
-        </div>
-
+      <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3">
+        {/* Botón principal - Más grande y destacado */}
         <button
           onClick={cameraActive ? stopDetection : startDetection}
           disabled={!isConnected}
-          className={`flex items-center gap-2 px-6 py-3 rounded-lg font-bold transition-colors shadow-lg ${
+          className={`flex items-center justify-center gap-3 px-8 py-4 rounded-xl font-bold text-base
+            transition-all shadow-lg hover:shadow-xl hover:scale-[1.02] ${
             cameraActive
-              ? 'bg-red-600 text-white hover:bg-red-700'
-              : 'bg-green-600 text-white hover:bg-green-700'
-          } disabled:opacity-50 disabled:cursor-not-allowed`}
+              ? 'bg-gradient-to-r from-red-600 to-red-700 text-white hover:from-red-700 hover:to-red-800'
+              : 'bg-gradient-to-r from-success-green to-green-700 text-white hover:from-green-700 hover:to-green-800'
+          } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
         >
-          {cameraActive ? <PowerOff className="w-5 h-5" /> : <Power className="w-5 h-5" />}
-          <span>{cameraActive ? 'Detener detección' : 'Iniciar detección'}</span>
+          {cameraActive ? (
+            <>
+              <PowerOff className="w-6 h-6" />
+              <span>Detener</span>
+            </>
+          ) : (
+            <>
+              <Power className="w-6 h-6" />
+              <span className="hidden sm:inline">Iniciar Detección</span>
+              <span className="sm:hidden">Iniciar</span>
+            </>
+          )}
         </button>
 
+        {/* Botón secundario */}
         <button
           onClick={onOpenConfig}
-          className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-slate-300 text-slate-700 rounded-lg font-bold hover:bg-slate-50 transition-colors"
+          className="flex items-center justify-center gap-2 px-5 py-4 bg-white border-2 border-slate-300 
+            text-slate-700 rounded-xl font-semibold hover:bg-slate-50 hover:border-slate-400
+            transition-all shadow-md"
         >
           <Settings className="w-5 h-5" />
-          Configuración
+          <span className="hidden sm:inline">Configuración</span>
         </button>
       </div>
 

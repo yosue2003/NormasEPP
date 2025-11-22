@@ -2,17 +2,17 @@ import { Shield } from 'lucide-react'
 
 export function Header() {
   return (
-    <header className="bg-white border-b border-slate-200 px-6 py-4">
-      <div className="flex items-center gap-3">
-        <div className="bg-blue-900 p-2 rounded-lg">
-          <Shield className="w-8 h-8 text-white" />
+    <header className="bg-gradient-to-r from-industrial-dark to-steel-blue px-6 py-5 shadow-lg">
+      <div className="flex items-center gap-4">
+        <div className="bg-warning-yellow p-3 rounded-xl shadow-md">
+          <Shield className="w-8 h-8 text-industrial-dark" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
-            Sistema de Verificación de EPP
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            Sistema EPP <span className="text-warning-yellow">•</span> Seguridad Industrial
           </h1>
-          <p className="text-sm text-slate-600">
-            Monitoreo en tiempo real del uso de equipos de protección personal
+          <p className="text-sm text-slate-300">
+            Monitoreo en tiempo real
           </p>
         </div>
       </div>

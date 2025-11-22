@@ -15,6 +15,7 @@ interface CameraFeedProps {
   onRefresh: () => void
   onCapture?: (imageData: string) => void
   detections?: Detection[]
+  isConnected?: boolean
 }
 
 export interface CameraFeedHandle {
@@ -22,7 +23,7 @@ export interface CameraFeedHandle {
 }
 
 export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
-  ({ isCompliant, onRefresh, onCapture, detections = [] }, ref) => {
+  ({ isCompliant, onRefresh, onCapture, detections = [], isConnected = false }, ref) => {
   const { config } = useCameraConfig()
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -317,13 +318,21 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
     <div className="bg-white rounded-xl shadow-lg p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-bold text-slate-900">Cámara en vivo</h2>
-        <button
-          onClick={handleRefresh}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Actualizar
-        </button>
+        
+        {/* Badge de estado del servidor */}
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-full border border-slate-200">
+          <div className="relative flex items-center justify-center">
+            <div className={`w-2 h-2 rounded-full ${
+              isConnected ? 'bg-success-green' : 'bg-danger-red'
+            }`} />
+            {isConnected && (
+              <div className="absolute inset-0 w-2 h-2 rounded-full bg-success-green animate-ping opacity-75" />
+            )}
+          </div>
+          <span className="text-xs font-semibold text-slate-700">
+            {isConnected ? 'Servidor conectado' : 'Servidor desconectado'}
+          </span>
+        </div>
       </div>
 
       <div

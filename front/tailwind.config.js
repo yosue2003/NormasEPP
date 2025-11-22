@@ -47,6 +47,14 @@ module.exports = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // Colores EPP - Seguridad Industrial
+        'warning-yellow': '#FDB022',
+        'safety-orange': '#FF6B35',
+        'industrial-dark': '#1A1F2E',
+        'steel-blue': '#2C3E50',
+        'success-green': '#10B981',
+        'danger-red': '#EF4444',
+        'alert-amber': '#F59E0B',
       },
       borderRadius: {
         lg: "var(--radius)",

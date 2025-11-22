@@ -30,34 +30,44 @@ export function StatusPanel({ ppeStatus, isDetecting = false }: StatusPanelProps
     },
   ).length
   return (
-    <div className="bg-white rounded-xl shadow-lg p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-bold text-slate-900">Estado de EPP</h2>
+    <div className="bg-white rounded-2xl shadow-xl border-2 border-slate-200 overflow-hidden">
+      {/* Header con degradado industrial */}
+      <div className="bg-gradient-to-br from-industrial-dark to-steel-blue p-4">
+        <h2 className="text-lg font-bold text-white mb-1">Estado del EPP</h2>
         {isDetecting && (
-          <div className="flex items-center gap-2 text-blue-600">
-            <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
-            <span className="text-xs font-medium">Detectando...</span>
+          <div className="flex items-center gap-2 text-warning-yellow">
+            <div className="w-2 h-2 bg-warning-yellow rounded-full animate-pulse" />
+            <span className="text-xs font-semibold">Analizando...</span>
           </div>
         )}
       </div>
 
-      <div
-        className={`mb-6 p-6 rounded-xl text-center ${isCompliant ? 'bg-green-50 border-2 border-green-500' : 'bg-red-50 border-2 border-red-500'}`}
-      >
+      {/* Contenido */}
+      <div className="p-4">
+        {/* Status Badge */}
         <div
-          className={`text-3xl font-bold mb-2 ${isCompliant ? 'text-green-700' : 'text-red-700'}`}
+          className={`p-4 rounded-xl text-center border-2 ${
+            isCompliant 
+              ? 'bg-green-50 border-success-green' 
+              : 'bg-red-50 border-danger-red'
+          }`}
         >
-          {isCompliant ? 'EPP COMPLETO' : 'EPP INCOMPLETO'}
-        </div>
-        {!isCompliant && (
-          <div className="text-sm text-red-600 font-medium">
-            Faltan {missingItems} elemento{missingItems > 1 ? 's' : ''} de
-            seguridad
+          <div
+            className={`text-2xl font-black mb-1 ${
+              isCompliant ? 'text-success-green' : 'text-danger-red'
+            }`}
+          >
+            {isCompliant ? '✓ EPP COMPLETO' : '⚠ EPP INCOMPLETO'}
           </div>
-        )}
-      </div>
+          {!isCompliant && (
+            <div className="text-xs text-danger-red font-semibold">
+              Faltan {missingItems} elemento{missingItems > 1 ? 's' : ''}
+            </div>
+          )}
+        </div>
 
-      <div className="space-y-2">
+        {/* Lista EPP */}
+        <div className="mt-4 space-y-2">
         <PPEChecklistItem
           label="Casco"
           icon={<HardHat className="w-5 h-5" />}
@@ -88,6 +98,7 @@ export function StatusPanel({ ppeStatus, isDetecting = false }: StatusPanelProps
           icon={<Workflow className="w-5 h-5" />}
           detected={ppeStatus.tapabocas}
         />
+        </div>
       </div>
     </div>
   )
