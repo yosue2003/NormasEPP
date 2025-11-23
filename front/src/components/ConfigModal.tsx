@@ -6,15 +6,36 @@ import {
   Clock,
   User,
   Settings as SettingsIcon,
+  Volume2,
+  Timer,
+  BarChart3,
+  Download,
+  Trash2,
+  AlertTriangle,
+  Shield,
+  Info,
+  HardHat,
+  Glasses,
+  Hand,
+  Footprints,
+  Shirt,
+  Wind,
+  Lightbulb,
+  VolumeX,
+  Globe,
+  Bot,
 } from 'lucide-react'
 import { useCameraConfig } from '../contexts/camera'
+import { ConfirmDialog } from './ConfirmDialog'
+import { AlertDialog } from './AlertDialog'
 
 interface ConfigModalProps {
   isOpen: boolean
   onClose: () => void
+  onHistoryCleared?: () => void
 }
 
-export function ConfigModal({ isOpen, onClose }: ConfigModalProps) {
+export function ConfigModal({ isOpen, onClose, onHistoryCleared }: ConfigModalProps) {
   const [activeTab, setActiveTab] = useState<
     'camera' | 'alerts' | 'history' | 'user'
   >('camera')
@@ -44,7 +65,6 @@ export function ConfigModal({ isOpen, onClose }: ConfigModalProps) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header con tema industrial */}
         <div className="bg-gradient-to-r from-industrial-dark to-steel-blue px-6 py-5 border-b-4 border-warning-yellow">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -62,7 +82,6 @@ export function ConfigModal({ isOpen, onClose }: ConfigModalProps) {
           </div>
         </div>
 
-        {/* Tabs */}
         <div className="flex border-b-2 border-slate-200 px-6 overflow-x-auto bg-slate-50">
           {tabs.map((tab) => {
             const Icon = tab.icon
@@ -83,15 +102,13 @@ export function ConfigModal({ isOpen, onClose }: ConfigModalProps) {
           })}
         </div>
 
-        {/* Contenido */}
         <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
           {activeTab === 'camera' && <CameraSettings />}
-          {activeTab === 'alerts' && <AlertsSettings />}
-          {activeTab === 'history' && <HistorySettings />}
-          {activeTab === 'user' && <UserSettings />}
+        {activeTab === 'alerts' && <AlertsSettings />}
+        {activeTab === 'history' && <HistorySettings onHistoryCleared={onHistoryCleared} />}
+        {activeTab === 'user' && <UserSettings />}
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t-2 border-slate-200 bg-white">
           <button
             onClick={onClose}
@@ -216,23 +233,25 @@ function CameraSettings() {
           <li>Pégala aquí arriba (automáticamente agregará /video)</li>
           <li>¡Asegúrate de estar en la misma red WiFi!</li>
         </ol>
-        <p className="text-xs text-blue-700 mt-2">
-          💡 Tip: Abre primero la URL en tu navegador para verificar que funciona
+        <p className="text-xs text-blue-700 mt-2 flex items-center gap-1">
+          <Lightbulb className="w-4 h-4" />
+          <span>Tip: Abre primero la URL en tu navegador para verificar que funciona</span>
         </p>
       </div>
     </div>
   )
 }
+
 function AlertsSettings() {
   const { config, updateConfig } = useCameraConfig()
   
   const ppeItems = [
-    { key: 'casco' as const, label: 'Casco', icon: '⛑️' },
-    { key: 'lentes' as const, label: 'Lentes de seguridad', icon: '👓' },
-    { key: 'guantes' as const, label: 'Guantes', icon: '🧤' },
-    { key: 'botas' as const, label: 'Botas', icon: '🥾' },
-    { key: 'ropa' as const, label: 'Chaleco/Protector', icon: '🦺' },
-    { key: 'tapabocas' as const, label: 'Tapabocas', icon: '😷' },
+    { key: 'casco' as const, label: 'Casco', icon: <HardHat className="w-6 h-6 text-steel-blue" /> },
+    { key: 'lentes' as const, label: 'Lentes de seguridad', icon: <Glasses className="w-6 h-6 text-steel-blue" /> },
+    { key: 'guantes' as const, label: 'Guantes', icon: <Hand className="w-6 h-6 text-steel-blue" /> },
+    { key: 'botas' as const, label: 'Botas', icon: <Footprints className="w-6 h-6 text-steel-blue" /> },
+    { key: 'ropa' as const, label: 'Chaleco/Protector', icon: <Shirt className="w-6 h-6 text-steel-blue" /> },
+    { key: 'tapabocas' as const, label: 'Tapabocas', icon: <Wind className="w-6 h-6 text-steel-blue" /> },
   ]
 
   const handleTogglePPE = (key: keyof typeof config.requiredPPE) => {
@@ -252,10 +271,9 @@ function AlertsSettings() {
 
   return (
     <div className="space-y-8">
-      {/* Equipamiento a validar */}
       <div className="bg-white rounded-xl p-6 shadow-md border-2 border-slate-200">
         <h3 className="text-lg font-bold text-industrial-dark mb-4 flex items-center gap-2">
-          <span className="text-2xl">🛡️</span>
+          <Shield className="w-6 h-6 text-steel-blue" />
           Equipamiento a validar
         </h3>
         <div className="space-y-3">
@@ -269,7 +287,7 @@ function AlertsSettings() {
               }`}
             >
               <div className="flex items-center gap-3">
-                <span className="text-2xl">{item.icon}</span>
+                {item.icon}
                 <span className="font-semibold text-slate-900">{item.label}</span>
               </div>
               <input
@@ -282,16 +300,16 @@ function AlertsSettings() {
           ))}
         </div>
         <div className="mt-4 p-4 bg-warning-yellow/10 border-2 border-warning-yellow/30 rounded-xl">
-          <p className="text-sm text-industrial-dark font-medium">
-            💡 <strong>Nota:</strong> Solo los elementos marcados serán validados. Los desmarcados no afectarán el estado de cumplimiento.
+          <p className="text-sm text-industrial-dark font-medium flex items-start gap-2">
+            <Lightbulb className="w-5 h-5 text-warning-yellow flex-shrink-0 mt-0.5" />
+            <span><strong>Nota:</strong> Solo los elementos marcados serán validados. Los desmarcados no afectarán el estado de cumplimiento.</span>
           </p>
         </div>
       </div>
 
-      {/* Configuración de alertas */}
       <div className="bg-white rounded-xl p-6 shadow-md border-2 border-slate-200">
         <h3 className="text-lg font-bold text-industrial-dark mb-4 flex items-center gap-2">
-          <span className="text-2xl">🔔</span>
+          <Bell className="w-6 h-6 text-steel-blue" />
           Tipo de alerta
         </h3>
         <div className="grid grid-cols-3 gap-3">
@@ -313,14 +331,13 @@ function AlertsSettings() {
         </div>
       </div>
 
-      {/* Volumen */}
       <div className="bg-white rounded-xl p-6 shadow-md border-2 border-slate-200">
         <h3 className="text-lg font-bold text-industrial-dark mb-4 flex items-center gap-2">
-          <span className="text-2xl">🔊</span>
+          <Volume2 className="w-6 h-6 text-steel-blue" />
           Volumen
         </h3>
         <div className="flex items-center gap-4">
-          <span className="text-2xl">🔈</span>
+          <VolumeX className="w-6 h-6 text-slate-400" />
           <input
             type="range"
             min="0"
@@ -331,7 +348,7 @@ function AlertsSettings() {
             })}
             className="flex-1 h-3 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-warning-yellow"
           />
-          <span className="text-2xl">🔊</span>
+          <Volume2 className="w-6 h-6 text-steel-blue" />
         </div>
         <div className="mt-3 text-center">
           <span className="inline-block px-4 py-2 bg-warning-yellow text-industrial-dark rounded-xl text-lg font-black">
@@ -340,10 +357,9 @@ function AlertsSettings() {
         </div>
       </div>
 
-      {/* Intervalo de repetición */}
       <div className="bg-white rounded-xl p-6 shadow-md border-2 border-slate-200">
         <h3 className="text-lg font-bold text-industrial-dark mb-4 flex items-center gap-2">
-          <span className="text-2xl">⏱️</span>
+          <Timer className="w-6 h-6 text-steel-blue" />
           Intervalo de repetición
         </h3>
         <select 
@@ -363,30 +379,38 @@ function AlertsSettings() {
   )
 }
 
-function HistorySettings() {
+interface HistoryRecord {
+  fecha: string
+  hora: string
+  estado: string
+  faltantes: string
+}
+
+function HistorySettings({ onHistoryCleared }: { onHistoryCleared?: () => void }) {
   const { config, updateConfig } = useCameraConfig()
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [showNoDataAlert, setShowNoDataAlert] = useState(false)
+  const [showErrorAlert, setShowErrorAlert] = useState(false)
+  const [showSuccessAlert, setShowSuccessAlert] = useState(false)
 
   const handleDownloadCSV = () => {
-    // Obtener datos del historial desde localStorage
     const historyData = localStorage.getItem('epp-detection-history')
     if (!historyData) {
-      alert('No hay registros para descargar')
+      setShowNoDataAlert(true)
       return
     }
 
     try {
-      const records = JSON.parse(historyData)
+      const records: HistoryRecord[] = JSON.parse(historyData)
       
-      // Crear CSV
       const headers = ['Fecha', 'Hora', 'Estado', 'Elementos Faltantes']
       const csvContent = [
         headers.join(','),
-        ...records.map((r: any) => 
+        ...records.map((r) => 
           `"${r.fecha}","${r.hora}","${r.estado}","${r.faltantes}"`
         )
       ].join('\n')
 
-      // Descargar archivo
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
       const link = document.createElement('a')
       const url = URL.createObjectURL(blob)
@@ -400,24 +424,29 @@ function HistorySettings() {
       document.body.removeChild(link)
     } catch (error) {
       console.error('Error descargando CSV:', error)
-      alert('Error al generar el archivo CSV')
+      setShowErrorAlert(true)
     }
   }
 
   const handleClearHistory = () => {
-    if (confirm('¿Estás seguro de que deseas eliminar todo el historial? Esta acción no se puede deshacer.')) {
-      localStorage.removeItem('epp-detection-history')
-      alert('Historial limpiado correctamente')
-      window.location.reload()
+    localStorage.removeItem('epp-detection-history')
+    setShowClearConfirm(false)
+    
+    // Primero actualizar el estado del Dashboard
+    if (onHistoryCleared) {
+      onHistoryCleared()
     }
+    
+    // Luego mostrar el mensaje de éxito
+    setShowSuccessAlert(true)
   }
 
   return (
-    <div className="space-y-6">
-      {/* Configuración de registros */}
+    <>
+      <div className="space-y-6">
       <div className="bg-white rounded-xl p-6 shadow-md border-2 border-slate-200">
         <h3 className="text-lg font-bold text-industrial-dark mb-4 flex items-center gap-2">
-          <span className="text-2xl">📊</span>
+          <BarChart3 className="w-6 h-6 text-steel-blue" />
           Registros a mostrar
         </h3>
         <div className="grid grid-cols-3 gap-3">
@@ -439,10 +468,9 @@ function HistorySettings() {
         </div>
       </div>
 
-      {/* Acciones */}
       <div className="bg-white rounded-xl p-6 shadow-md border-2 border-slate-200 space-y-4">
         <h3 className="text-lg font-bold text-industrial-dark mb-4 flex items-center gap-2">
-          <span className="text-2xl">⚙️</span>
+          <SettingsIcon className="w-6 h-6 text-steel-blue" />
           Acciones
         </h3>
         
@@ -450,23 +478,22 @@ function HistorySettings() {
           onClick={handleDownloadCSV}
           className="w-full px-6 py-4 bg-gradient-to-r from-success-green to-green-700 text-white rounded-xl font-bold hover:from-green-700 hover:to-green-800 transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-3"
         >
-          <span className="text-2xl">📥</span>
+          <Download className="w-6 h-6" />
           Descargar historial (CSV)
         </button>
         
         <button 
-          onClick={handleClearHistory}
+          onClick={() => setShowClearConfirm(true)}
           className="w-full px-6 py-4 bg-gradient-to-r from-danger-red to-red-700 text-white rounded-xl font-bold hover:from-red-700 hover:to-red-800 transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-3"
         >
-          <span className="text-2xl">🗑️</span>
+          <Trash2 className="w-6 h-6" />
           Limpiar historial
         </button>
       </div>
 
-      {/* Advertencia */}
       <div className="p-5 bg-alert-amber/20 border-2 border-alert-amber rounded-xl">
         <div className="flex items-start gap-3">
-          <span className="text-3xl">⚠️</span>
+          <AlertTriangle className="w-7 h-7 text-alert-amber" />
           <div>
             <p className="text-sm font-bold text-industrial-dark mb-1">
               Importante
@@ -478,16 +505,52 @@ function HistorySettings() {
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      isOpen={showClearConfirm}
+      title="Confirmar eliminación"
+      message="¿Estás seguro de que deseas eliminar todo el historial? Esta acción no se puede deshacer y se perderán todos los registros de detección almacenados."
+      confirmLabel="Sí, eliminar todo"
+      cancelLabel="Cancelar"
+      variant="danger"
+      onConfirm={handleClearHistory}
+      onCancel={() => setShowClearConfirm(false)}
+    />
+
+    <AlertDialog
+      isOpen={showNoDataAlert}
+      title="Sin datos"
+      message="No hay registros en el historial para descargar. Inicia la detección para generar registros."
+      variant="info"
+      onClose={() => setShowNoDataAlert(false)}
+    />
+
+    <AlertDialog
+      isOpen={showErrorAlert}
+      title="Error"
+      message="Ocurrió un error al generar el archivo CSV. Por favor, intenta nuevamente."
+      variant="error"
+      onClose={() => setShowErrorAlert(false)}
+    />
+
+    <AlertDialog
+      isOpen={showSuccessAlert}
+      title="Historial limpiado"
+      message="El historial se ha eliminado correctamente."
+      variant="success"
+      onClose={() => setShowSuccessAlert(false)}
+    />
+  </>
   )
 }
 
 function UserSettings() {
   return (
     <div className="space-y-6">
-      {/* Idioma */}
+
       <div className="bg-white rounded-xl p-6 shadow-md border-2 border-slate-200">
         <h3 className="text-lg font-bold text-industrial-dark mb-4 flex items-center gap-2">
-          <span className="text-2xl">🌐</span>
+          <Globe className="w-6 h-6 text-steel-blue" />
           Idioma
         </h3>
         <div className="grid grid-cols-2 gap-3">
@@ -500,10 +563,9 @@ function UserSettings() {
         </div>
       </div>
 
-      {/* Información del sistema */}
       <div className="bg-white rounded-xl p-6 shadow-md border-2 border-slate-200">
         <h3 className="text-lg font-bold text-industrial-dark mb-4 flex items-center gap-2">
-          <span className="text-2xl">🤖</span>
+          <Bot className="w-6 h-6 text-steel-blue" />
           Información del sistema
         </h3>
 
@@ -537,10 +599,9 @@ function UserSettings() {
         </div>
       </div>
 
-      {/* Acerca de */}
       <div className="bg-gradient-to-br from-industrial-dark to-steel-blue rounded-xl p-6 shadow-lg text-white">
         <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-          <span className="text-2xl">ℹ️</span>
+          <Info className="w-6 h-6" />
           Acerca del sistema
         </h3>
         <p className="text-sm leading-relaxed opacity-90">

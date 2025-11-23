@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { Settings, Power, PowerOff } from 'lucide-react'
 import { CameraFeed, type CameraFeedHandle } from './CameraFeed'
 import { StatusPanel } from './StatusPanel'
@@ -7,6 +7,10 @@ import { DetectionHistory } from './DetectionHistory'
 import { PPEWebSocket, type DetectionResponse } from '../services/ppeService'
 import { useCameraConfig } from '../contexts/camera'
 import { alertService } from '../utils/alertService'
+
+export interface DashboardHandle {
+  clearHistory: () => void
+}
 
 interface DashboardProps {
   onOpenConfig: () => void
@@ -20,8 +24,10 @@ interface DetectionRecord {
   faltantes: string
 }
 
-export function Dashboard({ onOpenConfig }: DashboardProps) {
+export const Dashboard = forwardRef<DashboardHandle, DashboardProps>(
+  function Dashboard({ onOpenConfig }, ref) {
   const { config } = useCameraConfig()
+
   const [ppeStatus, setPpeStatus] = useState({
     casco: false,
     lentes: false,
@@ -33,7 +39,7 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
   const [isDetecting, setIsDetecting] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [detectionRecords, setDetectionRecords] = useState<DetectionRecord[]>(() => {
-    // Cargar historial desde localStorage
+
     try {
       const stored = localStorage.getItem('epp-detection-history')
       if (stored) {
@@ -56,12 +62,19 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
   const adaptiveIntervalRef = useRef<number>(1500)
   const latencyHistoryRef = useRef<number[]>([])
 
+  // Exponer método clearHistory al componente padre
+  useImperativeHandle(ref, () => ({
+    clearHistory: () => {
+      setDetectionRecords([])
+    }
+  }), [])
+
   const isCompliant = !hasDetection || Object.entries(ppeStatus).every(([key, detected]) => {
     const isRequired = config.requiredPPE[key as keyof typeof config.requiredPPE]
     return !isRequired || detected 
   })
 
-  const missingItems = Object.entries(ppeStatus)
+  const missingItems = hasDetection ? Object.entries(ppeStatus)
     .filter(([key, detected]) => {
       const isRequired = config.requiredPPE[key as keyof typeof config.requiredPPE]
       return isRequired && !detected 
@@ -76,7 +89,7 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
         tapabocas: 'Tapabocas',
       }
       return labels[key]
-    })
+    }) : []
 
   const handleDetectionResponse = useCallback((data: DetectionResponse) => {
 
@@ -158,26 +171,32 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
 
     setDetectionRecords((prev) => {
       const updated = [newRecord, ...prev.slice(0, config.history.maxRecords - 1)]
-      // Persistir en localStorage
-      localStorage.setItem('epp-detection-history', JSON.stringify(updated))
+      try {
+        localStorage.setItem('epp-detection-history', JSON.stringify(updated))
+      } catch (error) {
+        console.error('Error guardando historial:', error)
+      }
       return updated
     })
 
-    // Trigger de alertas si NO es compliant
+    // Ejecutar alertas solo si hay detección y no es compliant
     if (!data.is_compliant) {
-      const alertTriggered = alertService.trigger(
-        config.alerts.type,
-        config.alerts.volume,
-        config.alerts.repeatInterval
-      )
-      if (alertTriggered) {
-        console.log(`🚨 Alerta ${config.alerts.type} ejecutada`)
+      try {
+        const alertTriggered = alertService.trigger(
+          config.alerts.type,
+          config.alerts.volume,
+          config.alerts.repeatInterval
+        )
+        if (alertTriggered) {
+          console.log(`🚨 Alerta ${config.alerts.type} ejecutada`)
+        }
+      } catch (error) {
+        console.error('Error ejecutando alerta:', error)
       }
     } else {
-      // Reset del timer cuando se completa el EPP
       alertService.reset()
     }
-  }, [config.alerts, config.history.maxRecords])
+  }, [config.alerts.type, config.alerts.volume, config.alerts.repeatInterval, config.history.maxRecords])
 
   useEffect(() => {
     const initTimeout = setTimeout(() => {
@@ -218,7 +237,7 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
     }
 
     setCameraActive(true)
-    console.log('▶️ Iniciando detección continua con intervalo adaptativo')
+    console.log('▶Iniciando detección continua con intervalo adaptativo')
 
     const scheduleNextDetection = () => {
       detectionIntervalRef.current = window.setTimeout(() => {
@@ -266,7 +285,7 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
   }
   return (
     <div className="space-y-6">
-      <WarningBanner show={!isCompliant} missingItems={missingItems} />
+      <WarningBanner show={hasDetection && !isCompliant} missingItems={missingItems} />
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-4 sm:gap-6 items-start">
         <div className="w-full">
@@ -280,12 +299,11 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
         </div>
 
         <div className="w-full xl:sticky xl:top-6">
-          <StatusPanel ppeStatus={ppeStatus} isDetecting={isDetecting} />
+          <StatusPanel ppeStatus={ppeStatus} isDetecting={isDetecting} hasDetection={hasDetection} />
         </div>
       </div>
 
       <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3">
-        {/* Botón principal - Más grande y destacado */}
         <button
           onClick={cameraActive ? stopDetection : startDetection}
           disabled={!isConnected}
@@ -310,7 +328,6 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
           )}
         </button>
 
-        {/* Botón secundario */}
         <button
           onClick={onOpenConfig}
           className="flex items-center justify-center gap-2 px-5 py-4 bg-white border-2 border-slate-300 
@@ -325,4 +342,6 @@ export function Dashboard({ onOpenConfig }: DashboardProps) {
       <DetectionHistory records={detectionRecords} />
     </div>
   )
-}
+})
+
+Dashboard.displayName = 'Dashboard'

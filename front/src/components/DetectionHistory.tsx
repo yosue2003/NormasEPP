@@ -13,6 +13,9 @@ interface DetectionHistoryProps {
 }
 
 export function DetectionHistory({ records }: DetectionHistoryProps) {
+  // Asegurar que records es un array válido
+  const safeRecords = Array.isArray(records) ? records : []
+  
   return (
     <div className="bg-white rounded-xl shadow-lg p-6 border-2 border-slate-200">
       <div className="flex items-center justify-between mb-4">
@@ -23,11 +26,11 @@ export function DetectionHistory({ records }: DetectionHistoryProps) {
           </h2>
         </div>
         <span className="px-3 py-1 bg-steel-blue/10 text-steel-blue rounded-full text-sm font-bold">
-          {records.length} registro{records.length !== 1 ? 's' : ''}
+          {safeRecords.length} registro{safeRecords.length !== 1 ? 's' : ''}
         </span>
       </div>
 
-      {records.length === 0 ? (
+      {safeRecords.length === 0 ? (
         <div className="text-center py-12">
           <Clock className="w-16 h-16 text-slate-300 mx-auto mb-3" />
           <p className="text-slate-500 font-medium">No hay detecciones registradas</p>
@@ -53,16 +56,16 @@ export function DetectionHistory({ records }: DetectionHistoryProps) {
               </tr>
             </thead>
             <tbody>
-              {records.map((record) => (
+              {safeRecords.map((record, index) => (
                 <tr
-                  key={record.id}
+                  key={`${record.id}-${index}`}
                   className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
                 >
                   <td className="py-3 px-4 text-sm font-medium text-slate-900">
-                    {record.fecha}
+                    {record.fecha || '—'}
                   </td>
                   <td className="py-3 px-4 text-sm font-medium text-slate-900">
-                    {record.hora}
+                    {record.hora || '—'}
                   </td>
                   <td className="py-3 px-4">
                     <span
@@ -72,7 +75,7 @@ export function DetectionHistory({ records }: DetectionHistoryProps) {
                           : 'bg-danger-red/20 text-danger-red border-2 border-danger-red/30'
                       }`}
                     >
-                      {record.estado}
+                      {record.estado || 'Desconocido'}
                     </span>
                   </td>
                   <td className="py-3 px-4 text-sm text-slate-600">

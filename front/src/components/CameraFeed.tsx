@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
-import { Camera, RefreshCw, AlertCircle } from 'lucide-react'
+import { Camera, AlertCircle, AlertTriangle } from 'lucide-react'
 import { useCameraConfig } from '../contexts/camera'
 import { getResolutionDimensions, isValidCameraUrl } from '../utils/cameraUtils'
 
@@ -138,14 +138,14 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
       let sizeKB = (imageData.length * 0.75) / 1024
 
       if (sizeKB > 1024) {
-        console.warn(`⚠️ Imagen grande: ${sizeKB.toFixed(0)}KB - Comprimiendo...`)
+        console.warn(`Imagen grande: ${sizeKB.toFixed(0)}KB - Comprimiendo...`)
         imageData = canvas.toDataURL('image/jpeg', 0.4)
         sizeKB = (imageData.length * 0.75) / 1024
         setImageSizeWarning(`Imagen comprimida: ${sizeKB.toFixed(0)}KB`)
       }
 
       if (sizeKB > 2048) {
-        console.error(`❌ Imagen muy grande: ${sizeKB.toFixed(0)}KB - Reduciendo resolución`)
+        console.error(`Imagen muy grande: ${sizeKB.toFixed(0)}KB - Reduciendo resolución`)
         const reducedWidth = targetWidth * 0.5
         const reducedHeight = targetHeight * 0.5
         canvas.width = reducedWidth
@@ -153,15 +153,15 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
         context.drawImage(source, 0, 0, reducedWidth, reducedHeight)
         imageData = canvas.toDataURL('image/jpeg', 0.4)
         sizeKB = (imageData.length * 0.75) / 1024
-        setImageSizeWarning(`⚠️ Resolución reducida: ${sizeKB.toFixed(0)}KB`)
+        setImageSizeWarning(`Resolución reducida: ${sizeKB.toFixed(0)}KB`)
       }
 
       if (sizeKB < 500) {
-        console.log(`✅ Imagen optimizada: ${sizeKB.toFixed(0)}KB`)
+        console.log(`Imagen optimizada: ${sizeKB.toFixed(0)}KB`)
       } else if (sizeKB < 1024) {
-        console.log(`🟡 Imagen aceptable: ${sizeKB.toFixed(0)}KB`)
+        console.log(`Imagen aceptable: ${sizeKB.toFixed(0)}KB`)
       } else {
-        console.warn(`🟠 Imagen pesada: ${sizeKB.toFixed(0)}KB`)
+        console.warn(`Imagen pesada: ${sizeKB.toFixed(0)}KB`)
       }
       
       if (onCapture) {
@@ -318,8 +318,7 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
     <div className="bg-white rounded-xl shadow-lg p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-bold text-slate-900">Cámara en vivo</h2>
-        
-        {/* Badge de estado del servidor */}
+
         <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-full border border-slate-200">
           <div className="relative flex items-center justify-center">
             <div className={`w-2 h-2 rounded-full ${
@@ -427,7 +426,7 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
             
             {imageSizeWarning && (
               <div className="absolute bottom-4 left-4 bg-yellow-600/90 text-white px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-2">
-                <span className="text-base">⚠️</span>
+                <AlertTriangle className="w-4 h-4" />
                 {imageSizeWarning}
               </div>
             )}
