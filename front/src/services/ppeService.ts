@@ -101,6 +101,17 @@ export class PPEWebSocket {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
+          console.log('📨 Mensaje recibido del servidor:', data)
+          
+          if (data.type === 'connected') {
+            console.log('✅ Servidor confirmó conexión:', data.message)
+            return
+          }
+          
+          if (data.type === 'processing') {
+            console.log('⏳ Servidor procesando imagen...')
+            return
+          }
           
           if (data.type === 'ping') {
             this.sendPong()
@@ -111,6 +122,7 @@ export class PPEWebSocket {
             return
           }
 
+          console.log('✅ Procesando respuesta de detección...')
           this.onMessageCallback(data as DetectionResponse)
         } catch (error) {
           console.error('Error al parsear mensaje WebSocket:', error)
@@ -147,12 +159,13 @@ export class PPEWebSocket {
   send(imageData: string, confidence: number = 0.5) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
-        this.ws.send(
-          JSON.stringify({
-            image: imageData,
-            confidence,
-          })
-        )
+        const payload = {
+          image: imageData,
+          confidence,
+        }
+        console.log('🚀 Enviando imagen al servidor via WebSocket...')
+        console.log(`📊 Tamaño: ${(imageData.length / 1024).toFixed(2)}KB`)
+        this.ws.send(JSON.stringify(payload))
       } catch (error) {
         console.error('Error al enviar datos:', error)
         if (!this.isManualDisconnect) {

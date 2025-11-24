@@ -94,7 +94,9 @@ export const Dashboard = forwardRef<DashboardHandle, DashboardProps>(
   const handleDetectionResponse = useCallback((data: DetectionResponse) => {
 
     const latency = Date.now() - lastSendTimeRef.current
-    console.log(`Latencia: ${latency}ms | Detecciones: ${data.detections?.length || 0}`)
+    console.log('✅ Respuesta recibida del servidor:')
+    console.log(`⏱️ Latencia: ${latency}ms | Detecciones: ${data.detections?.length || 0}`)
+    console.log('📦 Datos:', data)
 
     if (!data || !data.ppe_status) {
       console.warn('Respuesta inválida del servidor:', data)
@@ -139,6 +141,12 @@ export const Dashboard = forwardRef<DashboardHandle, DashboardProps>(
       console.log(`Intervalo ajustado: ${adaptiveIntervalRef.current}ms (latencia avg: ${avgLatency.toFixed(0)}ms)`)
     }
 
+    console.log('📝 Actualizando estado con:', {
+      ppe_status: data.ppe_status,
+      num_detections: data.detections?.length || 0,
+      detections: data.detections
+    })
+    
     setPpeStatus(data.ppe_status)
     setDetections(data.detections || [])
     setIsDetecting(false)
@@ -252,8 +260,10 @@ export const Dashboard = forwardRef<DashboardHandle, DashboardProps>(
           
           const imageData = cameraFeedRef.current.handleCapture()
           if (imageData) {
+            console.log('📸 Captura realizada, enviando al servidor...')
             wsRef.current.send(imageData, 0.3)
           } else {
+            console.warn('⚠️ No se pudo capturar imagen')
             isProcessingRef.current = false
             setIsDetecting(false)
           }

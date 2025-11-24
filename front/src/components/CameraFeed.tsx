@@ -215,14 +215,22 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
 
     const drawDetections = () => {
       try {
+        console.log('🎨 Iniciando dibujo de detecciones...')
         const ctx = canvas.getContext('2d')
-        if (!ctx) return
+        if (!ctx) {
+          console.warn('❌ No se pudo obtener contexto 2D del canvas')
+          return
+        }
 
         const container = canvas.parentElement
-        if (!container) return
+        if (!container) {
+          console.warn('❌ Canvas sin contenedor padre')
+          return
+        }
 
         canvas.width = container.clientWidth
         canvas.height = container.clientHeight
+        console.log(`📐 Canvas: ${canvas.width}x${canvas.height}`)
 
         const mediaWidth = config.type === 'ip' 
           ? (imgRef.current?.naturalWidth || imgRef.current?.width || 1)
@@ -231,12 +239,19 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
           ? (imgRef.current?.naturalHeight || imgRef.current?.height || 1)
           : (videoRef.current?.videoHeight || 1)
 
-        if (mediaWidth <= 0 || mediaHeight <= 0) return
+        console.log(`📹 Media: ${mediaWidth}x${mediaHeight}`)
+
+        if (mediaWidth <= 0 || mediaHeight <= 0) {
+          console.warn('❌ Dimensiones de media inválidas')
+          return
+        }
 
         const scaleX = canvas.width / mediaWidth
         const scaleY = canvas.height / mediaHeight
+        console.log(`📊 Escala: X=${scaleX.toFixed(2)}, Y=${scaleY.toFixed(2)}`)
 
         ctx.clearRect(0, 0, canvas.width, canvas.height)
+        console.log(`🔢 Dibujando ${detections.length} detecciones...`)
 
       detections.forEach((detection, index) => {
         const detectionAny = detection as unknown as Record<string, unknown>

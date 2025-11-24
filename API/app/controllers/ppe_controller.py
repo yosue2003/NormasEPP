@@ -232,16 +232,32 @@ async def websocket_detect(websocket: WebSocket):
         metrics = ws_manager.get_metrics()
         print(f"WebSocket conectado - Activas: {metrics['active']}/{MAX_ACTIVE_CONNECTIONS} | Total: {metrics['total']}")
 
+        # Enviar mensaje de bienvenida al cliente
+        try:
+            await websocket.send_json({
+                "type": "connected",
+                "message": "Servidor listo para detección",
+                "timestamp": time.time()
+            })
+            print("✅ Mensaje de bienvenida enviado al cliente")
+        except Exception as e:
+            print(f"Error enviando mensaje de bienvenida: {e}")
+
         pong_task = asyncio.create_task(heartbeat_handler())
         cleanup_task = asyncio.create_task(cleanup_inactive())
         
+        print("✅ WebSocket listo para recibir datos")
+        
         while websocket.client_state == WebSocketState.CONNECTED:
             try:
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+                # Aumentar timeout inicial para dar tiempo al cliente
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
                 message = json.loads(data)
+                print(f"📨 Mensaje recibido del cliente: {list(message.keys())}")
 
                 ws_manager.update_activity(websocket)
 
+                # Manejar mensajes de heartbeat
                 if message.get("type") == "pong":
                     continue
 
@@ -249,7 +265,12 @@ async def websocket_detect(websocket: WebSocket):
                     if websocket.client_state == WebSocketState.CONNECTED:
                         await websocket.send_json({"type": "pong", "timestamp": time.time()})
                     continue
+                
+                # Ignorar mensajes de tipo 'connected' que el cliente podría reenviar
+                if message.get("type") == "connected":
+                    continue
 
+                # Validar que el mensaje contenga una imagen
                 if "image" not in message:
                     await ws_manager.send_error(websocket, "Falta campo 'image'")
                     continue
@@ -268,6 +289,14 @@ async def websocket_detect(websocket: WebSocket):
                 
                 confidence = message.get("confidence", 0.5)
 
+                # Enviar confirmación de que se está procesando la imagen
+                if websocket.client_state == WebSocketState.CONNECTED:
+                    await websocket.send_json({
+                        "type": "processing",
+                        "message": "Procesando imagen...",
+                        "timestamp": time.time()
+                    })
+
                 try:
                     loop = asyncio.get_event_loop()
                     result = await asyncio.wait_for(
@@ -277,15 +306,19 @@ async def websocket_detect(websocket: WebSocket):
                             image_data,
                             confidence
                         ),
-                        timeout=10.0
+                        timeout=30.0  # Aumentado de 10s a 30s para imágenes grandes
                     )
                     
                     if websocket.client_state == WebSocketState.CONNECTED:
                         await ws_manager.send_detection(websocket, result)
+                        print("✅ Respuesta de detección enviada al cliente")
+                    else:
+                        print("⚠️ Cliente desconectado, no se envió respuesta")
                 
                 except asyncio.TimeoutError:
-                    print(f"Timeout en detección YOLO (>10s)")
-                    await ws_manager.send_error(websocket, "Timeout en procesamiento")
+                    print(f"⏱️ Timeout en detección YOLO (>30s)")
+                    if websocket.client_state == WebSocketState.CONNECTED:
+                        await ws_manager.send_error(websocket, "Timeout en procesamiento")
                     continue
                 
                 except Exception as yolo_error:
